@@ -19,8 +19,10 @@ from IPython.display import clear_output
 import dataio 
 
 import llayers 
-from llayers import upsample, downsample, Discriminator
+from llayers import upsample, downsample
 from tensorflow_examples.models.pix2pix import pix2pix
+
+import subpixel
 
 tf.summary.trace_on(
     graph=True,
@@ -32,13 +34,16 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 cuneiform_dataset_directory = '/home/alex/data/cdli/image_translation/dataset'
 
 BUFFER_SIZE = 1000
-BATCH_SIZE = 16
-NUM_VIS = 16
+BATCH_SIZE = 32
+NUM_VIS = BATCH_SIZE
 IMG_WIDTH = 256
 IMG_HEIGHT = 256
 #IMG_HEIGHT,IMG_WIDTH = int(640./4), int(480./4)
 EPOCHS = 3000
-LAMBDA = 3. # default 10
+LAMBDA = 1 # default 10
+
+LABEL_SMOOTH_HIGH = 0.9
+NORM_TYPE = ['batchnorm','instancenorm'][0]
 
 def discriminator(norm_type='batchnorm'):
   """PatchGan discriminator model (https://arxiv.org/abs/1611.07004).
@@ -53,7 +58,7 @@ def discriminator(norm_type='batchnorm'):
 
   initializer = tf.random_normal_initializer(0., 0.02)
 
-  inp = tf.keras.layers.Input(shape=[None, None, 3], name='input_image')
+  inp = tf.keras.layers.Input(shape=[IMG_HEIGHT, IMG_WIDTH, 3], name='input_image')
   x = inp
 
   down1 = downsample(64, 4, norm_type, False)(x)  # (bs, 128, 128, 64)
@@ -81,11 +86,6 @@ def discriminator(norm_type='batchnorm'):
   #return tf.keras.Model(inputs=inp, outputs=[down1,down2,down3,zero_pad2, last])
   return tf.keras.Model(inputs=inp, outputs=last)
 
-
-
-
-generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
-discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 loss_obj = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
 def gradient_x(img):
@@ -128,7 +128,7 @@ def calc_ssim_loss(x, y):
   return ssim
 
 def discriminator_loss(real, generated):
-  real_loss = loss_obj(tf.ones_like(real), real)
+  real_loss = loss_obj(LABEL_SMOOTH_HIGH * tf.ones_like(real), real)
 
   generated_loss = loss_obj(tf.zeros_like(generated), generated)
 
@@ -189,11 +189,11 @@ def train(data,config):
 
   OUTPUT_CHANNELS = 3
 
-  generator_g = pix2pix.unet_generator(OUTPUT_CHANNELS, norm_type='instancenorm')
-  generator_f = pix2pix.unet_generator(OUTPUT_CHANNELS, norm_type='instancenorm')
+  generator_g = llayers.unet_generator(OUTPUT_CHANNELS, norm_type=NORM_TYPE)
+  generator_f = llayers.unet_generator(OUTPUT_CHANNELS, norm_type=NORM_TYPE)
 
-  discriminator_x = pix2pix.discriminator(norm_type='instancenorm',target=False)
-  discriminator_y = pix2pix.discriminator(norm_type='instancenorm',target=False)
+  discriminator_x = llayers.discriminator(norm_type=NORM_TYPE,target=False)
+  discriminator_y = llayers.discriminator(norm_type=NORM_TYPE,target=False)
 
   generator_g_optimizer = tf.keras.optimizers.Adam(config['lr']['G'], beta_1=0.5)
   generator_f_optimizer = tf.keras.optimizers.Adam(config['lr']['F'], beta_1=0.5)
@@ -243,20 +243,17 @@ def train(data,config):
       # Generator F translates Y -> X.
       
       fake_y = generator_g(real_x, training=True)
-      # blur fake symbols to get rid of high frequency noise
-      blur_size = 3
-      blur_kernel = tf.ones([blur_size,blur_size,3,3],tf.float32)/(blur_size * blur_size)
-      fake_y = tf.nn.conv2d(fake_y,blur_kernel,strides=1,padding='SAME')
-
-      cycled_x = generator_f(fake_y, training=True)
-
       fake_x = generator_f(real_y, training=True)
-      fake_x = tf.nn.conv2d(fake_x,blur_kernel,strides=1,padding='SAME')
+      
+      # blur fake symbols to get rid of high frequency noise
+      if 0:
+        blur_size = 3
+        blur_kernel = tf.ones([blur_size,blur_size,3,3],tf.float32)/(blur_size * blur_size)
+        fake_y = tf.nn.conv2d(fake_y,blur_kernel,strides=1,padding='SAME')
+        fake_x = tf.nn.conv2d(fake_x,blur_kernel,strides=1,padding='SAME')
+    
+      cycled_x = generator_f(fake_y, training=True)
       cycled_y = generator_g(fake_x, training=True)
-
-      # same_x and same_y are used for identity loss.
-      same_x = generator_f(real_x, training=True)
-      same_y = generator_g(real_y, training=True)
 
       disc_real_x = discriminator_x(gaussian_noise_layer(real_x, .1), training=True)
       disc_real_y = discriminator_y(gaussian_noise_layer(real_y, .1), training=True)
@@ -268,11 +265,8 @@ def train(data,config):
       gen_g_loss = generator_loss(disc_fake_y)
       gen_f_loss = generator_loss(disc_fake_x)
       
-      """
-        fake_y = generator_g(real_x) add additional smoothing to get smooth binary outputs
-        should avoid 'cheating' when G(x) looks all the same, but F(G(x))=~=x
-      """
-      depth_smoothness_loss = depth_smoothness(fake_y,real_y)
+      
+      #depth_smoothness_loss = depth_smoothness(fake_y,real_y)
 
       # cycle loss
       cycle_loss_x, cycle_loss_y = calc_cycle_loss(real_x, cycled_x), calc_cycle_loss(real_y, cycled_y)
@@ -283,8 +277,8 @@ def train(data,config):
       total_cycle_loss = cycle_loss_x + cycle_loss_y + ssim_loss_x + ssim_loss_y
       
       # Total generator loss = adversarial loss + cycle loss
-      total_gen_g_loss = gen_g_loss + total_cycle_loss + depth_smoothness_loss# + identity_loss(real_y, same_y)
-      total_gen_f_loss = gen_f_loss + total_cycle_loss# + identity_loss(real_x, same_x)
+      total_gen_g_loss = gen_g_loss + total_cycle_loss# + depth_smoothness_loss#
+      total_gen_f_loss = gen_f_loss + total_cycle_loss#  
 
       disc_x_loss = discriminator_loss(disc_real_x, disc_fake_x)
       disc_y_loss = discriminator_loss(disc_real_y, disc_fake_y)
@@ -327,7 +321,7 @@ def train(data,config):
           tf.summary.scalar("loss ssim y",ssim_loss_y, step=global_step)
           tf.summary.scalar("loss discrim x",disc_x_loss,step=global_step)
           tf.summary.scalar("loss discrim y",disc_y_loss,step=global_step)
-          tf.summary.scalar("loss depth_smoothness", depth_smoothness_loss, step=global_step)
+          #tf.summary.scalar("loss depth_smoothness", depth_smoothness_loss, step=global_step)
 
           def im_summary(name,data):
             tf.summary.image(name,(data+1)/2,step=global_step)
@@ -373,9 +367,9 @@ if __name__ == '__main__':
     #data  = load_datasets()
     #print(data)
     data= None
-    lr = 4e-5 # default 2e-4
+    lr = 4e-4 # default 2e-4
     config = {
-      'lr': {"G":lr,"F":lr,"Dx":lr,"Dy":lr}
+      'lr': {"G":lr/4.,"F":lr/4.,"Dx":lr,"Dy":lr}
     }
     train(data,config)
     print()
