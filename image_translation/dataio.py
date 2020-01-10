@@ -49,6 +49,11 @@ def load_image_train(image_file):
   input_image = normalize(input_image)
   #input_image = random_jitter(input_image)
   #print('input',input_image.shape)
+
+  input_image = tf.image.random_flip_left_right(input_image)
+  input_image = tf.image.random_flip_up_down(input_image)
+  
+
   return input_image
 
 def load_cuneiform_dataset(dataset_dir,bs):
