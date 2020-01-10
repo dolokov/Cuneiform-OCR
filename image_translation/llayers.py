@@ -2,6 +2,31 @@
 
 import tensorflow as tf 
 
+class GrayLayer(tf.keras.layers.Layer):
+  def __init__(self,**kwargs):
+    super(GrayLayer, self).__init__(kwargs)
+
+  def call(self,inputs):
+    x = inputs
+    if 1:
+      #print('xA',x.get_shape().as_list())
+      x = tf.reduce_mean(x,axis=3)
+      x = tf.expand_dims(x,axis=3)
+      x = tf.tile(x,[1,1,1,3])
+      #print('xB',x.get_shape().as_list())
+      return x 
+    else:
+      # attention module 
+      r = x[:,:,:,0]
+      g = x[:,:,:,1]
+      b = x[:,:,:,2]
+
+      x = r*g+b 
+      x = tf.expand_dims(x,axis=3)
+      x = tf.tile(x,[1,1,1,3])
+      
+      return x
+
 def downsample_stridedconv(filters, size, norm_type='batchnorm', apply_norm=True):
   """Downsamples an input.
   Conv2D => Batchnorm => LeakyRelu
@@ -138,7 +163,7 @@ def upsample_nn(filters, size, norm_type='batchnorm', apply_norm=True, apply_dro
   return result 
 
 downsample = [downsample_stridedconv,downsample_nn][0]
-upsample = [upsample_transpconv,upsample_subpixel, upsample_nn][1]
+upsample = [upsample_transpconv,upsample_subpixel, upsample_nn][2]
 
 def unet_generator(output_channels, norm_type='batchnorm', img_height=256,img_width=256):
   """Modified u-net generator model (https://arxiv.org/abs/1611.07004).
@@ -198,6 +223,9 @@ def unet_generator(output_channels, norm_type='batchnorm', img_height=256,img_wi
     
   x = last(x)
 
+  # RGB->Gray->RGB
+  x = GrayLayer()(x)
+  
   return tf.keras.Model(inputs=inputs, outputs=x)
 
 
