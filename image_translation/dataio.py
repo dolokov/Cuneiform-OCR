@@ -78,7 +78,7 @@ def load_cuneiform_dataset(dataset_dir,bs):
         #BUFFER_SIZE).batch(bs)
         BUFFER_SIZE = 1000
         data['train%s'%n] = tf.data.Dataset.list_files(os.path.join(dataset_dir,k,'*.png'))
-        data['train%s'%n] = data['train%s'%n].map(load_image_train, num_parallel_calls = tf.data.experimental.AUTOTUNE).shuffle(BUFFER_SIZE).batch(bs).prefetch(64)#.cache()
+        data['train%s'%n] = data['train%s'%n].map(load_image_train, num_parallel_calls = tf.data.experimental.AUTOTUNE).shuffle(BUFFER_SIZE).batch(bs).prefetch(4*bs)#.cache()
         data['test%s'%n] = []
     return data 
   

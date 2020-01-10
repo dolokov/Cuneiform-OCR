@@ -272,8 +272,8 @@ def train(data,config):
       cycle_loss_x, cycle_loss_y = calc_cycle_loss(real_x, cycled_x), calc_cycle_loss(real_y, cycled_y)
       
       # ssim
-      ssim_loss_x = calc_ssim_loss(real_x, cycled_x) /2.
-      ssim_loss_y = calc_ssim_loss(real_y, cycled_y) /2.
+      ssim_loss_x = calc_ssim_loss(real_x, cycled_x) #*2.
+      ssim_loss_y = calc_ssim_loss(real_y, cycled_y) #*2.
       total_cycle_loss = cycle_loss_x + cycle_loss_y + ssim_loss_x + ssim_loss_y
       
       # Total generator loss = adversarial loss + cycle loss
@@ -342,7 +342,7 @@ def train(data,config):
     start = time.time()
     
     for image_x, image_y in tf.data.Dataset.zip((train_horses, train_zebras)):
-      if n % 50 == 0:
+      if n % 25 == 0:
         generate_images(generator_g(sample_horses), sample_horse,n,vis_directory)
       _global_step = tf.convert_to_tensor(n, dtype=tf.int64)
       try:
@@ -367,7 +367,7 @@ if __name__ == '__main__':
     #data  = load_datasets()
     #print(data)
     data= None
-    lr = 4e-4 # default 2e-4
+    lr = 1e-4 # default 2e-4
     config = {
       'lr': {"G":lr/4.,"F":lr/4.,"Dx":lr,"Dy":lr}
     }
