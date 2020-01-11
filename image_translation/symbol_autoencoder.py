@@ -132,7 +132,7 @@ def train(config):
     # checkpoints
     # checkpoints and tensorboard summary writer
     now = str(datetime.now()).replace(' ','_').replace(':','-')
-    checkpoint_path = os.path.join("~/checkpoints/autoencoder_singlesymbol/%s" % now)
+    checkpoint_path = os.path.expanduser("~/checkpoints/autoencoder_singlesymbol/%s/model" % now)
     vis_directory = os.path.join(checkpoint_path,'vis')
     logdir = os.path.join(checkpoint_path,'logs')
     for _directory in [checkpoint_path,logdir]:
@@ -170,6 +170,6 @@ def train(config):
 if __name__ == '__main__':
     config = {'batch_size':BATCH_SIZE, 'img_height':64,'img_width':64}
     config['epochs'] = 50
-    config['lr'] = 1e-4
+    config['lr'] = 1e-3
 
     train(config)
