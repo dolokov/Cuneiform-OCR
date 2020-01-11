@@ -20,7 +20,7 @@ def normalize(image):
   if image.get_shape().as_list()[2] == 1:
     image = tf.tile(image,[1,1,3])
   image = tf.reshape(image,(IMG_HEIGHT,IMG_WIDTH,3))
-  print('shape',image.get_shape().as_list())
+  #print('shape',image.get_shape().as_list())
   return image
 
 def random_jitter(image):
@@ -32,7 +32,7 @@ def random_jitter(image):
   image = random_crop(image)
 
   # random mirroring
-  image = tf.image.random_flip_left_right(image)
+  #image = tf.image.random_flip_left_right(image)
 
   return image
 
@@ -50,8 +50,8 @@ def load_image_train(image_file):
   #input_image = random_jitter(input_image)
   #print('input',input_image.shape)
 
-  input_image = tf.image.random_flip_left_right(input_image)
-  input_image = tf.image.random_flip_up_down(input_image)
+  #input_image = tf.image.random_flip_left_right(input_image)
+  #input_image = tf.image.random_flip_up_down(input_image)
   
 
   return input_image

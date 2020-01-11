@@ -8,6 +8,7 @@ import cv2 as cv
 from glob import glob 
 
 import extract_symbol_patches
+import photo2gray
 
 directory_images = '/home/alex/data/cdli/images'
 directory_source = '/home/alex/data/cdli/image_translation/dataset/source'
@@ -27,12 +28,14 @@ def create_photo_dataset(res=256):
         print('mean',shapes.mean(axis=0))
         print('min',shapes.min(axis=0))
         print('max',shapes.max(axis=0))
-        
+    
+    count = 0
     for i,f in enumerate(files):
         im = cv.imread(f)
         im = cv.cvtColor(im,cv.COLOR_BGR2GRAY)
-        im = cv.cvtColor(im,cv.COLOR_GRAY2BGR)
-     
+        #im = cv.cvtColor(im,cv.COLOR_GRAY2BGR)
+        im = photo2gray.preprocess(im)
+
         #if len(im.shape)==3 and im.shape[2]==3:
         #    im = cv.cvtColor(im,cv.COLOR_BGR2GRAY)
         pad = (im.shape[0]-im.shape[1])//2
@@ -42,10 +45,21 @@ def create_photo_dataset(res=256):
             sstack = np.vstack
 
         im = sstack((np.zeros((im.shape[0],pad,3),'uint8'),im,np.zeros((im.shape[0],pad,3),'uint8')))
-        im = cv.resize( im, (res,res) )
-        
-        fno = os.path.join(directory_source,'%i.png' % i)
-        cv.imwrite(fno,im)
+        k = 20
+        for loop_res in [(res,res),(res-k,res+k),(res+k,res-k),(res,res-k),(res,res+k),(res-k,res),(res+k,res),(res-k,res-k)]:
+            resized = cv.resize( im, loop_res )
+            
+            # random h/v flips
+            for do_hflip in [False,True]:
+                for do_vflip in [False,True]:
+                    ima = np.uint8(resized) 
+                    if do_vflip:
+                        ima = cv.flip(ima,0)
+                    if do_hflip:
+                        ima = cv.flip(ima,1)
+                    fno = os.path.join(directory_source,'%i.png' % count)
+                    cv.imwrite(fno,ima)
+                    count += 1
 
 def create_symbols_dataset():
     url = 'https://cdli.ucla.edu/dl/lineart/P429857_ld.jpg'
