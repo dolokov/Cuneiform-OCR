@@ -32,7 +32,7 @@ def create_photo_dataset(res=256):
     count = 0
     for i,f in enumerate(files):
         im = cv.imread(f)
-        im = cv.cvtColor(im,cv.COLOR_BGR2GRAY)
+        #im = cv.cvtColor(im,cv.COLOR_BGR2GRAY)
         #im = cv.cvtColor(im,cv.COLOR_GRAY2BGR)
         im = photo2gray.preprocess(im)
 
@@ -44,24 +44,26 @@ def create_photo_dataset(res=256):
         else:
             sstack = np.vstack
 
-        im = sstack((np.zeros((im.shape[0],pad,3),'uint8'),im,np.zeros((im.shape[0],pad,3),'uint8')))
+        im = sstack((np.zeros((im.shape[0],pad),'uint8'),im,np.zeros((im.shape[0],pad),'uint8')))
         k = 20
-        for loop_res in [(res,res),(res-k,res+k),(res+k,res-k),(res,res-k),(res,res+k),(res-k,res),(res+k,res),(res-k,res-k)]:
+        #for loop_res in [(res,res),(res-k,res+k),(res+k,res-k),(res,res-k),(res,res+k),(res-k,res),(res+k,res),(res-k,res-k)]:
+        for loop_res in [(res,res)]:#
             resized = cv.resize( im, loop_res )
             
             # random h/v flips
-            for do_hflip in [False,True]:
+            """for do_hflip in [False,True]:
                 for do_vflip in [False,True]:
                     ima = np.uint8(resized) 
                     if do_vflip:
                         ima = cv.flip(ima,0)
                     if do_hflip:
-                        ima = cv.flip(ima,1)
-                    fno = os.path.join(directory_source,'%i.png' % count)
-                    cv.imwrite(fno,ima)
-                    count += 1
-
-def create_symbols_dataset():
+                        ima = cv.flip(ima,1)"""
+            fno = os.path.join(directory_source,'%i.png' % count)
+            cv.imwrite(fno,np.uint8(resized) )
+            count += 1
+    return count 
+    
+def create_symbols_dataset(num_samples):
     url = 'https://cdli.ucla.edu/dl/lineart/P429857_ld.jpg'
     fn_in = os.path.expanduser('~/P429857_ld.jpg')
     if not os.path.isfile(fn_in):
@@ -77,10 +79,10 @@ def create_symbols_dataset():
         os.makedirs(directory_patches_symbols)
 
     symbols = extract_symbol_patches.extract_symbols(fn_in, directory_patches_symbols)
-    extract_symbol_patches.make_cuniform_symbols(symbols, target_dir = directory_target)
+    extract_symbol_patches.make_cuniform_symbols(symbols, target_dir = directory_target,num_samples = num_samples)
 
 if __name__ == '__main__':
     print('[*] creating source photo dataset ...')
-    create_photo_dataset()
+    num_samples = create_photo_dataset()
     print('[*] creating target symbol dataset ...')
-    create_symbols_dataset()
+    create_symbols_dataset(num_samples)
