@@ -42,7 +42,7 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 cuneiform_dataset_directory = '/home/alex/data/cdli/image_translation/dataset'
 
 BUFFER_SIZE = 1000
-BATCH_SIZE = 32
+BATCH_SIZE = 8
 NUM_VIS = BATCH_SIZE
 IMG_WIDTH = 256
 IMG_HEIGHT = 256
@@ -259,8 +259,8 @@ def train(data,config):
       # ssim
       ssim_loss_x = calc_ssim_loss(real_x, cycled_x) #*2.
       ssim_loss_y = calc_ssim_loss(real_y, cycled_y) #*2.
-      #total_cycle_loss = cycle_loss_x + cycle_loss_y
-      total_cycle_loss = ssim_loss_x + ssim_loss_y
+      total_cycle_loss = cycle_loss_x + cycle_loss_y
+      total_cycle_loss += ssim_loss_x + ssim_loss_y
       
       # feature matching discriminator (mean vector direction)
       #feature_matching_loss_x = tf.norm( tf.reduce_mean(disc_real_x_intermediate) - tf.reduce_mean(disc_fake_x_intermediate) )
@@ -271,8 +271,8 @@ def train(data,config):
       feature_matching_loss /= 1000.
 
       # Total generator loss = adversarial loss + cycle loss
-      total_gen_g_loss = gen_g_loss + total_cycle_loss + feature_matching_loss # + depth_smoothness_loss#
-      total_gen_f_loss = gen_f_loss + total_cycle_loss + feature_matching_loss#  
+      total_gen_g_loss = gen_g_loss + total_cycle_loss# + feature_matching_loss # + depth_smoothness_loss#
+      total_gen_f_loss = gen_f_loss + total_cycle_loss# + feature_matching_loss#  
 
       disc_x_loss = discriminator_loss(disc_real_x, disc_fake_x)
       disc_y_loss = discriminator_loss(disc_real_y, disc_fake_y)
@@ -370,7 +370,7 @@ if __name__ == '__main__':
     #print(data)
     data= None
     lr = 1e-4 # default 2e-4
-    lr = 8e-4
+    lr = 4e-4
     config = {
       'lr': {"G":lr/4.,"F":lr/4.,"Dx":lr,"Dy":lr}
     }
