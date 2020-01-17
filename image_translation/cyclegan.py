@@ -22,7 +22,14 @@ import llayers
 from llayers import upsample, downsample
 from tensorflow_examples.models.pix2pix import pix2pix
 
-import subpixel
+from tensorflow.keras.mixed_precision import experimental as mixed_precision
+dtype = tf.float32
+if 0:
+  policy = mixed_precision.Policy('mixed_float16')
+  mixed_precision.set_policy(policy)
+  print('Compute dtype: %s' % policy.compute_dtype)
+  print('Variable dtype: %s' % policy.variable_dtype)
+  dtype = tf.bfloat16
 
 tf.summary.trace_on(
     graph=True,
@@ -30,61 +37,22 @@ tf.summary.trace_on(
 )
 
 #tfds.disable_progress_bar()
+
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 cuneiform_dataset_directory = '/home/alex/data/cdli/image_translation/dataset'
 
 BUFFER_SIZE = 1000
-BATCH_SIZE = 32
+BATCH_SIZE = 8
 NUM_VIS = BATCH_SIZE
 IMG_WIDTH = 256
 IMG_HEIGHT = 256
 #IMG_HEIGHT,IMG_WIDTH = int(640./4), int(480./4)
 EPOCHS = 3000
 LAMBDA = 1 # default 10
+OUTPUT_CHANNELS = 1
 
 LABEL_SMOOTH_HIGH = 0.9
 NORM_TYPE = ['batchnorm','instancenorm'][0]
-
-def discriminator(norm_type='batchnorm'):
-  """PatchGan discriminator model (https://arxiv.org/abs/1611.07004).
-  Args:
-    norm_type: Type of normalization. Either 'batchnorm' or 'instancenorm'.
-    target: Bool, indicating whether target image is an input or not.
-  Returns:
-    Discriminator model
-  
-  implementation taken from https://github.com/tensorflow/examples/blob/master/tensorflow_examples/models/pix2pix/pix2pix.py#L318
-  """
-
-  initializer = tf.random_normal_initializer(0., 0.02)
-
-  inp = tf.keras.layers.Input(shape=[IMG_HEIGHT, IMG_WIDTH, 3], name='input_image')
-  x = inp
-
-  down1 = downsample(64, 4, norm_type, False)(x)  # (bs, 128, 128, 64)
-  down2 = downsample(128, 4, norm_type)(down1)  # (bs, 64, 64, 128)
-  down3 = downsample(256, 4, norm_type)(down2)  # (bs, 32, 32, 256)
-
-  zero_pad1 = tf.keras.layers.ZeroPadding2D()(down3)  # (bs, 34, 34, 256)
-  conv = tf.keras.layers.Conv2D(
-      512, 4, strides=1, kernel_initializer=initializer,
-      use_bias=False)(zero_pad1)  # (bs, 31, 31, 512)
-
-  if norm_type.lower() == 'batchnorm':
-    norm1 = tf.keras.layers.BatchNormalization()(conv)
-  elif norm_type.lower() == 'instancenorm':
-    norm1 = InstanceNormalization()(conv)
-
-  leaky_relu = tf.keras.layers.LeakyReLU()(norm1)
-
-  zero_pad2 = tf.keras.layers.ZeroPadding2D()(leaky_relu)  # (bs, 33, 33, 512)
-
-  last = tf.keras.layers.Conv2D(
-      1, 4, strides=1,
-      kernel_initializer=initializer)(zero_pad2)  # (bs, 30, 30, 1)
-
-  #return tf.keras.Model(inputs=inp, outputs=[down1,down2,down3,zero_pad2, last])
-  return tf.keras.Model(inputs=inp, outputs=last)
 
 loss_obj = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
@@ -128,16 +96,26 @@ def calc_ssim_loss(x, y):
   return ssim
 
 def discriminator_loss(real, generated):
-  real_loss = loss_obj(LABEL_SMOOTH_HIGH * tf.ones_like(real), real)
-
-  generated_loss = loss_obj(tf.zeros_like(generated), generated)
-
-  total_disc_loss = real_loss + generated_loss
-
+  discrim_loss = ['vanilla','lsgan'][1]
+  # lsgan https://arxiv.org/pdf/1611.04076.pdf equ9
+  if discrim_loss == 'vanilla':
+    real_loss = loss_obj(LABEL_SMOOTH_HIGH * tf.ones_like(real), real)
+    generated_loss = loss_obj(tf.zeros_like(generated), generated)
+    total_disc_loss = real_loss + generated_loss
+  elif discrim_loss == 'lsgan':
+    real_loss = tf.reduce_mean(tf.math.pow(real - 1,2))
+    generated_loss = tf.reduce_mean(tf.math.pow(generated,2))
+    total_disc_loss = real_loss + generated_loss
   return total_disc_loss * 0.5
 
 def generator_loss(generated):
-  return loss_obj(tf.ones_like(generated), generated)
+  gen_loss = ['vanilla','lsgan'][1]
+  # lsgan https://arxiv.org/pdf/1611.04076.pdf equ9
+  if gen_loss == 'vanilla':
+    return loss_obj( LABEL_SMOOTH_HIGH * tf.ones_like(generated), generated)
+  elif gen_loss == 'lsgan':
+    #return 0.5 * tf.reduce_mean(tf.math.pow(generated- LABEL_SMOOTH_HIGH ,2))
+    return tf.reduce_mean(tf.math.pow(generated- 1 ,2))
 
 def calc_cycle_loss(real_image, cycled_image):
   loss1 = tf.reduce_mean(tf.abs(real_image - cycled_image))
@@ -155,6 +133,9 @@ def generate_images(prediction,test_input,step,vis_directory):
   #plt.figure(figsize=(NUM_VIS * 10, 12))
 
   images = [np.hstack([test_input[i,:,:,:], prediction[i,:,:,:]]) for i in range(NUM_VIS)]
+
+  if images[0].shape[2] == 1:
+    images = [np.dstack([im,im,im]) for im in images]
 
   count_per_row = 4
 
@@ -177,24 +158,26 @@ def generate_images(prediction,test_input,step,vis_directory):
 def train(data,config):
   
   dataset = dataio.load_cuneiform_dataset(cuneiform_dataset_directory,BATCH_SIZE)
+  print('[*] loaded dataset')
 
   train_horses, train_zebras = dataset['trainA'], dataset['trainB']
   test_horses, test_zebras = dataset['testA'], dataset['testB']
   bs= BATCH_SIZE
+  print('TODO SAMPLE HORSE')
+  #sample_horse = next(iter(train_horses))
+  print('train_horses')
+  #sample_zebra = next(iter(train_zebras))
 
-  sample_horse = next(iter(train_horses))
-  sample_zebra = next(iter(train_zebras))
-
-  sample_horses = [next(iter(train_horses)) for _ in range(NUM_VIS)]
-
-  OUTPUT_CHANNELS = 3
+  #sample_horses = [next(iter(train_horses)) for _ in range(NUM_VIS)]
 
   generator_g = llayers.unet_generator(OUTPUT_CHANNELS, norm_type=NORM_TYPE)
   generator_f = llayers.unet_generator(OUTPUT_CHANNELS, norm_type=NORM_TYPE)
+  print('[*] created generators G and F')
 
   discriminator_x = llayers.discriminator(norm_type=NORM_TYPE,target=False)
   discriminator_y = llayers.discriminator(norm_type=NORM_TYPE,target=False)
-
+  print('[*] created discriminators x and y')
+  
   generator_g_optimizer = tf.keras.optimizers.Adam(config['lr']['G'], beta_1=0.5)
   generator_f_optimizer = tf.keras.optimizers.Adam(config['lr']['F'], beta_1=0.5)
 
@@ -208,6 +191,8 @@ def train(data,config):
   vis_directory = os.path.join(checkpoint_path,'vis')
   if not os.path.isdir(vis_directory):
     os.makedirs(vis_directory)
+
+  print(3*'\n','[*] starting training in directory %s with config' % checkpoint_path,config)
 
   writer = tf.summary.create_file_writer(checkpoint_path)
 
@@ -231,35 +216,35 @@ def train(data,config):
 
   @tf.function
   def gaussian_noise_layer(input_layer, std):
-      noise = tf.random.normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32) 
+      noise = tf.random.normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=dtype) 
       return input_layer + noise
 
   #@tf.function
   def train_step(real_x, real_y, writer, global_step, should_summarize = False):
+    tstart = time.time()
     # persistent is set to True because the tape is used more than
     # once to calculate the gradients.
     with tf.GradientTape(persistent=True) as tape:
       # Generator G translates X -> Y
       # Generator F translates Y -> X.
-      
       fake_y = generator_g(real_x, training=True)
       fake_x = generator_f(real_y, training=True)
       
       # blur fake symbols to get rid of high frequency noise
       if 0:
         blur_size = 3
-        blur_kernel = tf.ones([blur_size,blur_size,3,3],tf.float32)/(blur_size * blur_size)
+        blur_kernel = tf.ones([blur_size,blur_size,3,3],dtype)/(blur_size * blur_size)
         fake_y = tf.nn.conv2d(fake_y,blur_kernel,strides=1,padding='SAME')
         fake_x = tf.nn.conv2d(fake_x,blur_kernel,strides=1,padding='SAME')
     
       cycled_x = generator_f(fake_y, training=True)
       cycled_y = generator_g(fake_x, training=True)
 
-      disc_real_x = discriminator_x(gaussian_noise_layer(real_x, .1), training=True)
-      disc_real_y = discriminator_y(gaussian_noise_layer(real_y, .1), training=True)
+      disc_real_x, disc_real_x_intermediate = discriminator_x(gaussian_noise_layer(real_x, .1), training=True)
+      disc_real_y, disc_real_y_intermediate = discriminator_y(gaussian_noise_layer(real_y, .1), training=True)
 
-      disc_fake_x = discriminator_x(gaussian_noise_layer(fake_x, .1), training=True)
-      disc_fake_y = discriminator_y(gaussian_noise_layer(fake_y, .1), training=True)
+      disc_fake_x, disc_fake_x_intermediate = discriminator_x(gaussian_noise_layer(fake_x, .1), training=True)
+      disc_fake_y, disc_fake_y_intermediate = discriminator_y(gaussian_noise_layer(fake_y, .1), training=True)
 
       # calculate the loss
       gen_g_loss = generator_loss(disc_fake_y)
@@ -274,11 +259,20 @@ def train(data,config):
       # ssim
       ssim_loss_x = calc_ssim_loss(real_x, cycled_x) #*2.
       ssim_loss_y = calc_ssim_loss(real_y, cycled_y) #*2.
-      total_cycle_loss = cycle_loss_x + cycle_loss_y + ssim_loss_x + ssim_loss_y
+      total_cycle_loss = cycle_loss_x + cycle_loss_y
+      total_cycle_loss += ssim_loss_x + ssim_loss_y
       
+      # feature matching discriminator (mean vector direction)
+      #feature_matching_loss_x = tf.norm( tf.reduce_mean(disc_real_x_intermediate) - tf.reduce_mean(disc_fake_x_intermediate) )
+      #feature_matching_loss_y = tf.norm( tf.reduce_mean(disc_real_y_intermediate) - tf.reduce_mean(disc_fake_y_intermediate) )
+      feature_matching_loss_x = tf.reduce_mean( tf.norm(disc_real_x_intermediate - disc_fake_x_intermediate))
+      feature_matching_loss_y = tf.reduce_mean( tf.norm(disc_real_y_intermediate - disc_fake_y_intermediate))
+      feature_matching_loss = .5 * feature_matching_loss_x + .5 * feature_matching_loss_y
+      feature_matching_loss /= 1000.
+
       # Total generator loss = adversarial loss + cycle loss
-      total_gen_g_loss = gen_g_loss + total_cycle_loss# + depth_smoothness_loss#
-      total_gen_f_loss = gen_f_loss + total_cycle_loss#  
+      total_gen_g_loss = gen_g_loss + total_cycle_loss# + feature_matching_loss # + depth_smoothness_loss#
+      total_gen_f_loss = gen_f_loss + total_cycle_loss# + feature_matching_loss#  
 
       disc_x_loss = discriminator_loss(disc_real_x, disc_fake_x)
       disc_y_loss = discriminator_loss(disc_real_y, disc_fake_y)
@@ -295,18 +289,20 @@ def train(data,config):
                                               discriminator_y.trainable_variables)
     
     # Apply the gradients to the optimizer
-    generator_g_optimizer.apply_gradients(zip(generator_g_gradients, 
-                                              generator_g.trainable_variables))
-
-    generator_f_optimizer.apply_gradients(zip(generator_f_gradients, 
-                                              generator_f.trainable_variables))
-    
     discriminator_x_optimizer.apply_gradients(zip(discriminator_x_gradients,
                                                   discriminator_x.trainable_variables))
     
     discriminator_y_optimizer.apply_gradients(zip(discriminator_y_gradients,
                                                   discriminator_y.trainable_variables))
 
+    
+    generator_g_optimizer.apply_gradients(zip(generator_g_gradients, 
+                                              generator_g.trainable_variables))
+
+    generator_f_optimizer.apply_gradients(zip(generator_f_gradients, 
+                                              generator_f.trainable_variables))
+    
+    
     # write summary
     if should_summarize:
       with tf.device("cpu:0"):
@@ -321,6 +317,8 @@ def train(data,config):
           tf.summary.scalar("loss ssim y",ssim_loss_y, step=global_step)
           tf.summary.scalar("loss discrim x",disc_x_loss,step=global_step)
           tf.summary.scalar("loss discrim y",disc_y_loss,step=global_step)
+          tf.summary.scalar("loss feature matching x",feature_matching_loss_x,step=global_step)
+          tf.summary.scalar("loss feature matching y",feature_matching_loss_y,step=global_step)
           #tf.summary.scalar("loss depth_smoothness", depth_smoothness_loss, step=global_step)
 
           def im_summary(name,data):
@@ -337,14 +335,18 @@ def train(data,config):
         
         writer.flush()    
 
+    tend = time.time()
+    #print('step took',tend-tstart,'seconds')
+
   n = 0
   for epoch in range(EPOCHS):
     start = time.time()
     
     for image_x, image_y in tf.data.Dataset.zip((train_horses, train_zebras)):
-      if n % 25 == 0:
+      if n % 25 == 0 and 0:
         generate_images(generator_g(sample_horses), sample_horse,n,vis_directory)
       _global_step = tf.convert_to_tensor(n, dtype=tf.int64)
+      #train_step(image_x, image_y, writer, _global_step, should_summarize = n%20==0)
       try:
         train_step(image_x, image_y, writer, _global_step, should_summarize = n%20==0)
       except Exception as e:
@@ -360,7 +362,7 @@ def train(data,config):
       print ('Saving checkpoint for epoch {} at {}'.format(epoch+1,
                                                           ckpt_save_path))
 
-    print ('Time taken for epoch {} is {} sec\n'.format(epoch + 1,
+    print ('Time taken for epoch {} is {} sec'.format(epoch + 1,
                                                         time.time()-start))
 
 if __name__ == '__main__':
@@ -368,6 +370,7 @@ if __name__ == '__main__':
     #print(data)
     data= None
     lr = 1e-4 # default 2e-4
+    lr = 4e-4
     config = {
       'lr': {"G":lr/4.,"F":lr/4.,"Dx":lr,"Dy":lr}
     }

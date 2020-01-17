@@ -74,7 +74,7 @@ def extract_symbols(filepath, patch_dir):
 
     return symbols 
 
-def make_cuniform_symbols(symbols, num_samples = 8000, res = 256, target_dir = '/data/cdli/symbols/cuniforms' ):
+def make_cuniform_symbols(symbols, num_samples = 2000, res = 256, target_dir = '/data/cdli/symbols/cuniforms' ):
     """
         take single symbols and combine them to kind of realistic cuniform tablet transcriptions
 
@@ -112,6 +112,12 @@ def make_cuniform_symbols(symbols, num_samples = 8000, res = 256, target_dir = '
             for count_symbol in range(num_line_symbols):
                 x = int(count_symbol * symbol_size[1] + padd)
                 symbol = symbols[int(np.random.uniform(len(symbols)))]
+                # randomly downscale symbol
+                if np.random.uniform() < 0.5:
+                    new_size = np.array(symbol.shape[:2])
+                    new_size = np.int32(np.around(np.random.uniform(0.25,1.0,size=(2,)) * new_size))
+                    symbol = cv.resize(symbol,tuple(new_size))
+
                 #print('symbolshape',symbol.shape)
                 if np.random.uniform() < 0.70:
                     try:#if x<im.shape[1]-symbol.shape[1]:

@@ -7,25 +7,43 @@ import cv2 as cv
 IMG_HEIGHT = 256
 IMG_WIDTH = 256
 
+dtype = [tf.bfloat16,tf.float32][1]
+
 def random_crop(image):
   cropped_image = tf.image.random_crop(
-      image, size=[IMG_HEIGHT, IMG_WIDTH,3])#, image.get_shape().as_list()[2]])
+      image, size=[IMG_HEIGHT, IMG_WIDTH])#, image.get_shape().as_list()[2]])
 
   return cropped_image
 
 # normalizing the images to [-1, 1] 
-def normalize(image):
-  image = tf.cast(image, tf.float32)
+def normalize(image,output_channels=1):
+  image = tf.cast(image, dtype)
   image = (image / 127.5) - 1
-  if image.get_shape().as_list()[2] == 1:
-    image = tf.tile(image,[1,1,3])
-  image = tf.reshape(image,(IMG_HEIGHT,IMG_WIDTH,3))
+  #if output_channels==3 and image.get_shape().as_list()[2] == 1:
+  #  image = tf.tile(image,[1,1,3])
+  
+  '''try:
+    image = tf.reshape(image,(IMG_HEIGHT,IMG_WIDTH,3))
+    print('before grayscal',image.get_shape().as_list())
+    image = tf.image.rgb_to_grayscale(image)
+  except:'''
+  #image = tf.image.rgb_to_grayscale(image)
+  image = image[:,:,0]
+  image = tf.reshape(image,(IMG_HEIGHT,IMG_WIDTH,1))
+    
+  #if output_channels == 1 and image.get_shape().as_list()[2] == 3:
+  #if output_channels == 1:
+    
+    
+  
+  
   #print('shape',image.get_shape().as_list())
+  print('normalize')
   return image
 
 def random_jitter(image):
   # resizing to 286 x 286 x 3
-  image = tf.image.resize(image, [int(1.25*IMG_HEIGHT),int(1.25*IMG_WIDTH)],
+  image = tf.image.resize(image, [int(1.1*IMG_HEIGHT),int(1.1*IMG_WIDTH)],
                           method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 
   # randomly cropping to 256 x 256 x 3
@@ -40,15 +58,19 @@ def load(image_file):
   image = tf.io.read_file(image_file)
   image = tf.image.decode_png(image)
 
-  image = tf.cast(image, tf.float32)
+  image = tf.cast(image, dtype)
   #print('image',image.get_shape())
   return image
 
 def load_image_train(image_file):
   input_image = load(image_file)
+  input_image = tf.image.resize(input_image,(256,256))
   input_image = normalize(input_image)
+  print('before resize')
+  
+  
   #input_image = random_jitter(input_image)
-  #print('input',input_image.shape)
+  print('input image',input_image.shape)
 
   #input_image = tf.image.random_flip_left_right(input_image)
   #input_image = tf.image.random_flip_up_down(input_image)
