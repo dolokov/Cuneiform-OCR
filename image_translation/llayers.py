@@ -111,7 +111,7 @@ def upsample_subpixel(filters, size, norm_type='batchnorm', apply_norm=True, app
 
 
 
-def upsample_transpconv(filters, size, norm_type='batchnorm', apply_norm=True, apply_dropout=False):
+def upsample_transpconv(filters, size, norm_type='batchnorm', apply_norm=True, apply_dropout=False,activation=tf.nn.relu):
   initializer = tf.random_normal_initializer(0., 0.02)
 
   result = tf.keras.Sequential()
@@ -131,7 +131,9 @@ def upsample_transpconv(filters, size, norm_type='batchnorm', apply_norm=True, a
   if apply_dropout:
       result.add(tf.keras.layers.Dropout(0.5))
 
-  result.add(tf.keras.layers.ReLU())
+  result.add(tf.keras.layers.Activation(activation))
+  
+  #result.add(tf.keras.layers.ReLU())
 
   return result
 

@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf 
 from glob import glob 
 from random import shuffle 
+import time 
 
 from tensorflow.keras.datasets import mnist
 from tensorflow.keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D
@@ -30,36 +31,34 @@ def load_image_train_single_symbol(image_file):
   # resize to 
   image = tf.image.resize(image,(64,64))
 
-  # norm
+  # norm [-1,1]
   image = (image / 127.5) - 1
   if image.get_shape().as_list()[2] == 3:
     image = image[:,:,0]
-    #image = tf.tile(image,[1,1,3])
-  
+    #image = tf.tile(image,[1,1,3])  
   return image
 
 def Encoder(config,inputs):
     x = inputs
+    # denoising
+    #x = tf.keras.layers.GaussianNoise(0.2)(x)
+    
     x = llayers.downsample_stridedconv(32,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 32
     x = llayers.downsample_stridedconv(64,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 16
     x = llayers.downsample_stridedconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 8
     x = llayers.downsample_stridedconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 4
     x = llayers.downsample_stridedconv(256,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 2
     x = llayers.downsample_stridedconv(256,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 1
-    #return tf.keras.Model(inputs=inputs, outputs=x)
     return x
 
 def Decoder(config,encoder):
-    #inputs = tf.keras.layers.Input(shape=[1,1, 256],tensor=encoder.outputs[0])
-    #x = inputs
     x = encoder
-    x = llayers.upsample_transpconv(256,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 32
-    x = llayers.upsample_transpconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 16
+    x = llayers.upsample_transpconv(256,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 2
+    x = llayers.upsample_transpconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 4
     x = llayers.upsample_transpconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 8
-    x = llayers.upsample_transpconv(64,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 4
-    x = llayers.upsample_transpconv(32,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 2
-    x = llayers.upsample_transpconv(1,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 1
-    #return tf.keras.Model(inputs=inputs, outputs=x)
+    x = llayers.upsample_transpconv(64,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 16
+    x = llayers.upsample_transpconv(32,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 32
+    x = llayers.upsample_transpconv(1,(3,3), norm_type='batchnorm', apply_norm=False,activation=tf.tanh)(x) # 64
     return x 
 
 def load_single_symbols_dataset(dataset_dir,config):
@@ -67,7 +66,7 @@ def load_single_symbols_dataset(dataset_dir,config):
     shuffle(source_files)
     #source_files = source_files[:100]
     print('[*] loaded %i symbol images' % len(source_files))
-    ratio = .9
+    ratio = .9999
     files={'train':source_files[:int(len(source_files)*ratio)],'test':source_files[int(len(source_files)*ratio):]}
     data = {}
     import cv2 as cv 
@@ -82,54 +81,22 @@ def load_single_symbols_dataset(dataset_dir,config):
             im = np.expand_dims(im,axis=3)
             data[mode].append(im)
         data[mode] = np.array(data[mode])
-    return data  
-
-    for ratio,mode in zip([0.9,0.1],['train','test']):
-        BUFFER_SIZE = 1000
-        data[mode] = tf.data.Dataset.list_files(files[mode])
-        data[mode] = data[mode].map(load_image_train_single_symbol, num_parallel_calls = tf.data.experimental.AUTOTUNE)
     
-        data[mode] = data[mode].shuffle(BUFFER_SIZE)
-        
-        # add noisy variant to make it supervised
-        noise_factor = 0.5
-        @tf.function
-        def get_noisy(unnoisy):
-            print('unnoise',unnoisy)
-            noise = unnoisy
-            noise = unnoisy + noise_factor * tf.random.normal([config['img_height'],config['img_width'],3], mean=0.0, stddev=1.0)#unnoisy.get_shape().as_list()
-            #noise = noise[:,:,0]
-            #noise = tf.expand_dims(noise,axis=2)
-            noise = tf.clip_by_value(noise, -1., 1.)
-            return noise 
-        
-        data[mode] = data[mode].batch(config['batch_size'])
-        data[mode] = data[mode].prefetch(4*config['batch_size'])#.cache()
-        
-        #data[mode] = [data[mode],data[mode].map(get_noisy,num_parallel_calls=tf.data.experimental.AUTOTUNE)]
-        #data[mode] = np.array([xx for xx in data[mode]])
-        data[mode] = np.array(data[mode])
-        print('huhu data',data[mode].shape)
-    return data 
-
-
+    data = tf.data.Dataset.from_tensor_slices(data['train'])
+    data = data.batch(config['batch_size'])
+    return files['train'], data  
 
 def train(config):
-    dataset = load_single_symbols_dataset(single_symbol_dataset_directory,config)
+    symbol_files, dataset = load_single_symbols_dataset(single_symbol_dataset_directory,config)
 
     inputs = tf.keras.layers.Input(shape=[config['img_height'], config['img_width'], 1])
     encoder = Encoder(config,inputs)
-    decoder = Decoder(config,encoder)
+    reconstructed = Decoder(config,encoder)
 
     optimizer = tf.keras.optimizers.Adam(config['lr'])
-
-    #encoded = encoder(training=True)
-    #reconstructed = decoder(training=True)
     encoder_model = Model(inputs = inputs, outputs = encoder)
-    autoencoder = Model(inputs = inputs, outputs = decoder) #dataset['train'][0],outputsdataset['train'][1])
-    autoencoder.compile(optimizer=optimizer, loss='mae')
+    autoencoder = Model(inputs = inputs, outputs = reconstructed) #dataset['train'][0],outputsdataset['train'][1])
 
-    # checkpoints
     # checkpoints and tensorboard summary writer
     now = str(datetime.now()).replace(' ','_').replace(':','-')
     checkpoint_path = os.path.expanduser("~/checkpoints/autoencoder_singlesymbol/%s/model" % now)
@@ -140,10 +107,13 @@ def train(config):
             os.makedirs(_directory)
 
     writer = tf.summary.create_file_writer(checkpoint_path)
-
-    """ckpt = tf.train.Checkpoint(encoder=encoder,
-                            decoder=decoder,
-                            optimizer = optimizer)"""
+    def show_tb_images(batch_step):
+        with tf.device("cpu:0"):
+            with writer.as_default():    
+                _global_step = tf.convert_to_tensor(batch_step, dtype=tf.int64)
+                tf.summary.image("input",(inputs+1.)/2.,step=batch_step)
+                tf.summary.image("reconstructed",(reconstructed+1)/2,step=batch_step)
+      
     ckpt = tf.train.Checkpoint(encoder=encoder_model,
                             autoencoder=autoencoder,
                             optimizer = optimizer)
@@ -155,21 +125,68 @@ def train(config):
         ckpt.restore(ckpt_manager.latest_checkpoint)
         print('[*] Latest checkpoint restored',ckpt_manager.latest_checkpoint)
 
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir,update_freq=50)
-    checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path)
-    autoencoder.fit(dataset['train'],dataset['train'],
-        batch_size=config['batch_size'],
-        epochs=config['epochs'],
-        shuffle=True,
-        validation_data=(dataset['test'],dataset['test']),
-        callbacks=[tensorboard_callback,checkpoint_callback],
-    )
+    def train_step(inp, writer, global_step, should_summarize = False):
+        # persistent is set to True because the tape is used more than
+        # once to calculate the gradients.
+        with tf.GradientTape(persistent=True) as tape:
+            # autoencode inputs
+            reconstructed_inp = autoencoder(inp, training=True)
+            
+            # L1 loss
+            loss = tf.reduce_mean(tf.abs(reconstructed_inp - inp))
+
+        # gradients
+        gradients = tape.gradient(loss,autoencoder.trainable_variables)
+        # update weights
+        optimizer.apply_gradients(zip(gradients,autoencoder.trainable_variables))
+
+        # write summary
+        if should_summarize:
+            with tf.device("cpu:0"):
+                with writer.as_default():
+                    tf.summary.scalar("l1 loss",loss,step=global_step)
+                    def im_summary(name,data):
+                        tf.summary.image(name,(data+1)/2,step=global_step)
+                    im_summary('image',inp)
+                    im_summary('reconstructed',reconstructed_inp)
+                    writer.flush()    
+    n = 0
+    for epoch in range(config['epochs']):
+        start = time.time()
+
+        for inp in dataset:
+            _global_step = tf.convert_to_tensor(n, dtype=tf.int64)
+
+            train_step(inp,writer,_global_step,should_summarize=n%20==0)
+            n+=1
+        
+        end = time.time()
+        print('[*] epoch %i took %f seconds.'%(epoch,end-start))
+
     ckpt_save_path = ckpt_manager.save()
     print('Saving checkpoint for epoch {} at {}'.format(config['epochs'], ckpt_save_path))
 
-if __name__ == '__main__':
-    config = {'batch_size':BATCH_SIZE, 'img_height':64,'img_width':64}
-    config['epochs'] = 50
-    config['lr'] = 1e-3
+    """ after training the autoencoder, encode complete dataset and save to disk """
+    file_encodings = 'single_symbol_encodings.csv'
+    with open(file_encodings,'w') as f:
+        for i,inp in enumerate(dataset):
+            features = encoder_model(inp,training=False)
+            features = np.array(features)
+            .reshape([-1,256])
+            
+            for b in range(features.shape[0]):
+                symbol_file = symbol_files[features.shape[0]*i+b]    
+                line = '%s,%s'%(symbol_file,','.join([str(xx) for xx in features[b]]))
+                f.write(line+'\n')
+    return file_encodings
 
-    train(config)
+def save_encoding():
+    config = {'batch_size':BATCH_SIZE, 'img_height':64,'img_width':64}
+    config['epochs'] = 20
+    config['lr'] = 5e-3
+
+    file_encodings = train(config)
+    print('[*] saved encodings to %s' % file_encodings)
+
+if __name__ == '__main__':
+    save_encoding()
