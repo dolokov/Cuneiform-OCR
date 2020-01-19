@@ -91,4 +91,12 @@ for eps in [0.01,0.1,0.3,1.,3.,10.,30.,100.]:
                     cc += 1
                     stop=True
                 czz += 1
+    # draw black grid lines
+    for yi in range(grid_number):
+        y = yi * grid_size
+        cv.line(mosaic,(0,y),(mosaic.shape[1],y),(0,0,0),2)
+    for xi in range(grid_number):
+        x = xi * grid_size
+        cv.line(mosaic,(x,0),(x,mosaic.shape[0]),(0,0,0),2)
+        
     cv.imwrite(os.path.expanduser('~/data/cdli/symbol_clusters/mosaic_eps_%f.png'%eps),mosaic)
