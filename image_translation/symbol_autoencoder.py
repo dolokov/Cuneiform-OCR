@@ -21,6 +21,7 @@ from datetime import datetime
 
 single_symbol_dataset_directory = '/data/cdli/symbols/patches'
 BATCH_SIZE = 16
+n_latentcode = 64
 
 def load_image_train_single_symbol(image_file):
   # load from disk
@@ -43,17 +44,17 @@ def Encoder(config,inputs):
     # denoising
     #x = tf.keras.layers.GaussianNoise(0.2)(x)
     
-    x = llayers.downsample_stridedconv(32,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 32
+    x = llayers.downsample_stridedconv(32,(3,3), norm_type='batchnorm', apply_norm=False)(x) # 32
     x = llayers.downsample_stridedconv(64,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 16
     x = llayers.downsample_stridedconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 8
     x = llayers.downsample_stridedconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 4
     x = llayers.downsample_stridedconv(256,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 2
-    x = llayers.downsample_stridedconv(256,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 1
+    x = llayers.downsample_stridedconv(n_latentcode,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 1
     return x
 
 def Decoder(config,encoder):
     x = encoder
-    x = llayers.upsample_transpconv(256,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 2
+    x = llayers.upsample_transpconv(n_latentcode,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 2
     x = llayers.upsample_transpconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 4
     x = llayers.upsample_transpconv(128,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 8
     x = llayers.upsample_transpconv(64,(3,3), norm_type='batchnorm', apply_norm=True)(x) # 16
@@ -172,8 +173,7 @@ def train(config):
         for i,inp in enumerate(dataset):
             features = encoder_model(inp,training=False)
             features = np.array(features)
-            .reshape([-1,256])
-            
+            features = features.reshape([-1,n_latentcode])
             for b in range(features.shape[0]):
                 symbol_file = symbol_files[features.shape[0]*i+b]    
                 line = '%s,%s'%(symbol_file,','.join([str(xx) for xx in features[b]]))
@@ -182,8 +182,8 @@ def train(config):
 
 def save_encoding():
     config = {'batch_size':BATCH_SIZE, 'img_height':64,'img_width':64}
-    config['epochs'] = 20
-    config['lr'] = 5e-3
+    config['epochs'] = 100
+    config['lr'] = 1e-3
 
     file_encodings = train(config)
     print('[*] saved encodings to %s' % file_encodings)
