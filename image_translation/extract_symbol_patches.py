@@ -51,7 +51,7 @@ def extract_symbols(filepath, patch_dir):
             filepath = os.path.join(patch_dir, '%i.png' % count_patches)
             count_patches += 1
             if count_patches % 100 == 0:
-                print(count_patches, patch.shape)
+                ''#print(count_patches, patch.shape)
             #cv.imwrite(filepath, patch)
             symbols.append(patch)
             shapes.append(patch.shape[:2])
@@ -61,6 +61,7 @@ def extract_symbols(filepath, patch_dir):
     #vis = cv.drawContours(vis,[cnt],0,color,-1)
     #cv.imwrite('/tmp/patches.png', vis)
     shapes = np.array(shapes)
+    print('[*] symbol shapes:')
     print('mean/std x', np.mean(shapes[:, 1]), '/', np.std(shapes[:, 1]))
     print('mean/std y', np.mean(shapes[:, 0]), '/', np.std(shapes[:, 0]))
     print('min/max x', np.min(shapes[:, 1]), '/', np.max(shapes[:, 1]))
@@ -92,7 +93,7 @@ def make_cuniform_symbols(symbols, num_samples = 2000, res = 256, target_dir = '
     symbol_size = (48/2,48/2)
     line_color = 0
     H,W = int(640./4), int(480./4)
-    print('H/W',H,'/',W)
+    #print('H/W',H,'/',W)
     for i,symbol in enumerate(symbols):
         symbscale = symbol_size[0] / np.max(symbol.shape[:2])
         symbol = cv.resize(symbol,(0,0),fx=symbscale,fy=symbscale)
@@ -124,7 +125,7 @@ def make_cuniform_symbols(symbols, num_samples = 2000, res = 256, target_dir = '
                         im[y:y+symbol.shape[0],x:x+symbol.shape[1]] = symbol
                     except Exception as e:
                         pass
-                        print(e)
+                        #print(e)
 
             # draw horizontal line random
             if should_draw_horizontal_lines and np.random.uniform() < .9: 
@@ -146,7 +147,7 @@ def make_cuniform_symbols(symbols, num_samples = 2000, res = 256, target_dir = '
 
         fn = os.path.join(target_dir,'%i.png'%count_samples)
         cv.imwrite(fn, im)
-        print('wrote',fn)
+        #print('wrote',fn)
 
 
 def get_data(patch_dim=48, patch_dir='/data/cdli/symbols/patches'):

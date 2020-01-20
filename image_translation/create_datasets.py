@@ -10,16 +10,24 @@ from glob import glob
 import extract_symbol_patches
 import photo2gray
 
-directory_images = '/home/alex/data/cdli/images'
-directory_source = '/home/alex/data/cdli/image_translation/dataset/source'
-directory_target = '/home/alex/data/cdli/image_translation/dataset/target'
+directory_images = os.path.expanduser('~/data/cdli/images')
+directory_source = os.path.expanduser('~/data/cdli/image_translation/dataset/source')
+directory_target = os.path.expanduser('~/data/cdli/image_translation/dataset/target')
 
-for _dir in [directory_source,directory_target]:
+for _dir in [directory_images,directory_source,directory_target]:
     if not os.path.isdir(_dir):
         os.makedirs(_dir)
 
 def create_photo_dataset(res=256):
     files = glob(os.path.join(directory_images,'*.png'))
+    if len(files) == 0 :
+        print("""
+            found no images in %s! :(
+
+                please download and extract them from
+                https://drive.google.com/open?id=1cJlr8AxH0i1FikxBZRt17yhf3TsRROLu
+        """)
+        assert 1==0
     if 0:
         shapes = []
         for f in files:
@@ -80,6 +88,19 @@ def create_symbols_dataset(num_samples):
 
     symbols = extract_symbol_patches.extract_symbols(fn_in, directory_patches_symbols)
     extract_symbol_patches.make_cuniform_symbols(symbols, target_dir = directory_target,num_samples = num_samples)
+
+def create_symbols_datasetss(num_samples):
+    if not os.path.isdir(directory_target):
+        os.makedirs(directory_target)
+    
+    clusters = {}
+    ## load clusters
+    cluster_base = os.path.expanduser('~/data/cdli/symbol_clusters/eps_3.000000')
+    cluster_directories = glob(os.path.join(cluster_base,'*'))
+    for x in cluster_directories:
+        clusters[x.split('/')[-1]] = [cv.imread(fn) for fn in glob(os.path.join(x,'*.png'))]
+
+    return clusters 
 
 if __name__ == '__main__':
     print('[*] creating source photo dataset ...')
